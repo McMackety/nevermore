@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/McMackety/nevermore/config"
+	"github.com/McMackety/nevermore/field"
 	"log"
 )
 
@@ -11,4 +12,5 @@ var GitCommit string = "dev" // This will be injected at build time, don't worry
 func main() {
 	log.Printf("Starting nevermore v%s (Commit %s)", Version, GitCommit)
 	config.LoadConfig()
+	field.InitField()
 }
