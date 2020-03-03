@@ -1,28 +1,30 @@
 package field
 
 import (
+	"fmt"
+	"github.com/McMackety/nevermore/web"
 	"net"
 	"time"
 )
 
 type DriverStation struct {
-	TCPSocket net.Conn
-	CurrentField *Field
-	TeamNumber int
-	EmergencyStopped bool
-	Comms bool
-	RadioPing bool
-	RioPing bool
-	Enabled bool
-	Mode Mode
-	BatteryVoltage float64
-	UDPSequenceNum int
-	LostPacketsNum int
-	AverageTripTime int
-	Station AllianceStation
-	Status Status
-	LastUDPMessage time.Time
-	UDPConn net.Conn
+	TCPSocket net.Conn `json:"-"`
+	CurrentField *Field `json:"-"`
+	TeamNumber int `json:"teamNum"`
+	EmergencyStopped bool `json:"eStop"`
+	Comms bool `json:"comms"`
+	RadioPing bool `json:"radioPing"`
+	RioPing bool `json:"rioPing"`
+	Enabled bool `json:"enabled"`
+	Mode Mode `json:"mode"`
+	BatteryVoltage float64 `json:"batteryVoltage"`
+	UDPSequenceNum int `json:"-"`
+	LostPacketsNum int `json:"-"`
+	AverageTripTime int `json:"-"`
+	Station AllianceStation `json:"allianceStation"`
+	Status Status `json:"status"`
+	LastUDPMessage time.Time `json:"-"`
+	UDPConn net.Conn `json:"-"`
 }
 
 func (driverStation *DriverStation) sendEventName() {
@@ -45,15 +47,21 @@ func (driverStation *DriverStation) sendStationInfo() {
 	driverStation.TCPSocket.Write(prefixWithSize(data))
 }
 
+
+
 func (driverStation *DriverStation) tick() {
-	if time.Now().Unix() - driverStation.LastUDPMessage.Unix() > 100 {
+	if time.Since(driverStation.LastUDPMessage).Seconds() > 2 {
 		driverStation.Kick()
 	} else {
+		// Update all Web Clients for updates every tick.
+		// Uses "driverStationTick_{teamNum} as Event Name
+		web.WebEventsServer.EmitJSONAll("driverStationTick_" + string(driverStation.TeamNumber), driverStation)
+
 		var packet [22]byte
 		packet[0] = byte(driverStation.UDPSequenceNum >> 8 & 0xff)
 		packet[1] = byte(driverStation.UDPSequenceNum & 0xff)
 
-		packet[2] = 0x00
+		packet[2] = 0
 
 		packet[3] = 0
 		if driverStation.Mode == AUTONOMOUSMODE {
@@ -76,7 +84,7 @@ func (driverStation *DriverStation) tick() {
 
 		packet[8] = byte(CurrentField.MatchNumber & 0xff)
 
-		packet[9] = 0 // Useless Replay Number (To Us)
+		packet[9] = 1 // Useless Replay Number (To Us)
 
 		// Current time.
 		currentTime := time.Now()
@@ -101,13 +109,16 @@ func (driverStation *DriverStation) tick() {
 }
 
 func (driverStation *DriverStation) Kick() {
-	delete(driverStation.CurrentField.TeamNumberToDriverStation, driverStation.TeamNumber)
+	println("Kicked")
+	web.WebEventsServer.EmitJSONAll("driverStationKicked", driverStation.TeamNumber)
 	driverStation.TCPSocket.Close()
 	driverStation.UDPConn.Close()
 }
 
 func (driverStation *DriverStation) receiveUDP(eStop bool, comms bool, radioPing bool, rioPing bool, enabled bool, mode Mode, batteryVoltage float64) {
+	println("received")
 	driverStation.LastUDPMessage = time.Now()
+	fmt.Println(driverStation.LastUDPMessage)
 	driverStation.EmergencyStopped = eStop
 	driverStation.Comms = comms
 	driverStation.RadioPing = radioPing

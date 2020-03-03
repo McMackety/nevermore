@@ -1,9 +1,12 @@
 package field
 
 import (
+	"errors"
 	"fmt"
+	"github.com/McMackety/nevermore/web"
 	"log"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -11,38 +14,45 @@ var correctNetwork bool = false
 var CurrentField Field
 
 type Field struct {
-	TeamNumberToDriverStation map[int]DriverStation
-	AllianceStationToTeam map[AllianceStation]int
-	MatchPaused bool
-	MatchStarted bool
-	MatchReady bool
-	MatchStartedAt time.Time
-	MatchLevel Level
-	MatchNumber int
-	TimeLeft int
-	UDPSocket *net.UDPConn
-	EventName string
-	CurrentPhase string
+	TeamNumberToDriverStation map[int]DriverStation `json:"teamNumberToDriverStation"`
+	AllianceStationToTeam map[AllianceStation]int `json:"allianceStationToTeam"`
+	MatchPaused bool `json:"matchPaused"`
+	MatchStarted bool `json:"matchStarted"`
+	MatchReady bool `json:"matchReady"`
+	MatchDone bool `json:"matchDone"`
+	MatchStartedAt time.Time `json:"matchStartedAt"`
+	MatchLevel Level `json:"matchLevel"`
+	MatchNumber int `json:"matchNumber"`
+	TimeLeft int `json:"timeLeft"`
+	UDPSocket *net.UDPConn `json:"-"`
+	EventName string `json:"eventName"`
+	CurrentPhase string `json:"currentPhase"`
 }
 
 // InitField starts the networking for the FMS
 func InitField() {
+	log.Println("Initializing Field...")
 	// Check for a network interface with 10.0.100.5
 	addrs, _ := net.InterfaceAddrs()
+	log.Println("Scanning Network Interfaces: ")
 	for _, addr := range addrs {
-		if addr.String() == "10.0.100.5" {
+		log.Println("Found IP: " + addr.String())
+		if strings.HasPrefix(addr.String(), "10.0.100.5") {
 		 	correctNetwork = true
 		}
 	}
 	if !correctNetwork {
-		log.Fatalln("Couldn't find network interface with an IP of 10.0.100.5, please read the setup guide at https://github.com/McMackety/nevermore/wiki!")
+		log.Println("Couldn't find network interface with an IP of 10.0.100.5, the FMS will not be available however you can still use the Web Interface!")
 	}
 
 	CurrentField = Field{
+		TeamNumberToDriverStation: make(map[int]DriverStation),
+		AllianceStationToTeam: make(map[AllianceStation]int),
 		MatchPaused: false,
 		MatchStarted: false,
 		MatchReady: false,
-		MatchStartedAt: nil,
+		MatchDone: false,
+		MatchStartedAt: time.Now(),
 		MatchLevel: MATCHTESTLEVEL,
 		MatchNumber: 0,
 		EventName: "EAO",
@@ -110,14 +120,17 @@ func (field *Field) SetAllRobotModes(mode Mode) {
 
 func (field *Field) EnableAllRobots() {
 	field.MatchPaused = false
-	for _, driverStation := range field.TeamNumberToDriverStation {
+	for _, teamNum := range field.AllianceStationToTeam {
+		driverStation, ok := field.TeamNumberToDriverStation[teamNum]
+		if !ok {
+			continue
+		}
 		driverStation.Enabled = true
 	}
 }
 
 func (field *Field) KickAllDriverStations() {
-	for teamNum, driverStation := range field.TeamNumberToDriverStation {
-		delete(field.TeamNumberToDriverStation, teamNum)
+	for _, driverStation := range field.TeamNumberToDriverStation {
 		driverStation.Kick()
 	}
 }
@@ -125,6 +138,8 @@ func (field *Field) KickAllDriverStations() {
 func (field *Field) SetupField(matchNum int, tournamentLevel Level, red1 int, red2 int, red3 int, blue1 int, blue2 int, blue3 int) {
 	field.KickAllDriverStations()
 	field.MatchStarted = false
+	field.MatchDone = false
+	field.MatchReady = false
 	field.MatchLevel = tournamentLevel
 	field.AllianceStationToTeam[REDSTATION1] = red1
 	field.AllianceStationToTeam[REDSTATION2] = red2
@@ -132,42 +147,89 @@ func (field *Field) SetupField(matchNum int, tournamentLevel Level, red1 int, re
 	field.AllianceStationToTeam[BLUESTATION1] = blue1
 	field.AllianceStationToTeam[BLUESTATION2] = blue2
 	field.AllianceStationToTeam[BLUESTATION3] = blue3
+	web.WebEventsServer.EmitJSONAll("matchStatus", field)
+}
+
+func (field *Field) StartField() error {
+	if !field.MatchReady {
+		return errors.New("the match is not ready, not all driverStations have connected")
+	}
+	if field.MatchStarted {
+		return errors.New("the match has already started, setup the match before you restart it")
+	}
+
+	web.WebEventsServer.EmitJSONAll("matchStatus", field)
+	field.MatchStarted = true
+	return nil
 }
 
 func (field *Field) fieldTimer() {
+	if field.MatchDone {
+		return
+	}
 	if field.MatchStarted && !field.MatchPaused {
 		field.TimeLeft--
-		// INFINITE RECHARGE START
+		web.WebEventsServer.EmitJSONAll("newTime", field.TimeLeft)
 		if field.TimeLeft > TransitionLength + TeleopLength + EndgameLength {
 			if field.CurrentPhase != "auto" {
 				field.SetAllRobotModes(AUTONOMOUSMODE)
+				web.WebEventsServer.EmitJSONAll("changePhase", "auto")
 				field.EnableAllRobots()
 			}
 			field.CurrentPhase = "auto"
 		} else if field.TimeLeft > TeleopLength + EndgameLength {
 			if field.CurrentPhase != "transition" {
+				web.WebEventsServer.EmitJSONAll("changePhase", "transition")
 				field.DisableAllRobotsNoPause()
 			}
 			field.CurrentPhase = "transition"
 		} else if field.TimeLeft > EndgameLength {
 			if field.CurrentPhase != "teleop" {
 				field.SetAllRobotModes(TELEOPMODE)
+				web.WebEventsServer.EmitJSONAll("changePhase", "teleop")
 				field.EnableAllRobots()
 			}
 			field.CurrentPhase = "teleop"
 		} else if field.TimeLeft > 0 {
+			if field.CurrentPhase != "endgame" {
+				web.WebEventsServer.EmitJSONAll("changePhase", "endgame")
+			}
 			field.CurrentPhase = "endgame"
 		} else {
 			field.DisableAllRobotsNoPause()
+			field.MatchDone = true
+			web.WebEventsServer.EmitJSONAll("matchDone", true)
 		}
 
-		// INFINITE RECHARGE END
 	}
 	time.Sleep(time.Second)
 	field.fieldTimer()
 }
 
 func (field *Field) tick() {
+	// Check if all teams are on field in order to say that the game is ready.
+	hasAllTeamsOnField := false
+	for _, teamNum := range field.AllianceStationToTeam {
+		teamIsOnField := false
+		for _, driverStation := range field.TeamNumberToDriverStation {
+			if driverStation.TeamNumber == teamNum {
+				teamIsOnField = true
+			}
+		}
+		if teamIsOnField {
+			hasAllTeamsOnField = true
+		} else {
+			hasAllTeamsOnField = false
+			break
+		}
+	}
+	if hasAllTeamsOnField {
+		field.MatchReady = true
+		web.WebEventsServer.EmitJSONAll("matchReady", true)
+	} else {
+		field.MatchReady = false
+		web.WebEventsServer.EmitJSONAll("matchReady", false)
+	}
 	for _, driverStation := range field.TeamNumberToDriverStation {
 		driverStation.tick()
 	}
@@ -190,12 +252,13 @@ func (field *Field) createDriverStation(teamNum int, socket net.Conn, udpSocket 
 		UDPSequenceNum:   0,
 		LostPacketsNum:   0,
 		AverageTripTime:  0,
+		LastUDPMessage:   time.Now(),
 		Station:          field.GetAllianceStationFromTeamNum(teamNum),
 		UDPConn: 		  udpSocket,
 	}
 
-	if _, ok := field.TeamNumberToDriverStation[teamNum]; ok {
-		driverStation.Kick()
+	if newStation, ok := field.TeamNumberToDriverStation[teamNum]; ok {
+		driverStation = newStation
 		return
 	}
 	field.TeamNumberToDriverStation[teamNum] = driverStation
@@ -211,10 +274,12 @@ func (field *Field) createDriverStation(teamNum int, socket net.Conn, udpSocket 
 }
 
 func (field *Field) listenTCP() {
-	listener, err := net.Listen("tcp", "10.0.100.5:1750")
+	listener, err := net.Listen("tcp", ":1750")
 	if err != nil {
-		log.Panicln("Couldn't start FMS TCP Server: " + err.Error())
+		log.Println("Couldn't start FMS TCP Server: " + err.Error())
+		return
 	}
+	log.Println("The FMS started a TCP Server on 10.0.100.5:1750!")
 	defer listener.Close()
 
 	for {
@@ -231,14 +296,14 @@ func (field *Field) listenTCP() {
 					conn.Close()
 					return
 				}
-				var bytes []byte
-				_, err := conn.Read(bytes)
+				var bytes [5]byte
+				_, err := conn.Read(bytes[:])
 				if err != nil {
 					errorNum++
 					continue
 				}
 				if bytes[2] == 0x18 {
-					teamNum := int((bytes[3] << 8) + bytes[4])
+					teamNum := (int(bytes[3]) << 8) + int(bytes[4])
 					ipAddress, _, err := net.SplitHostPort(conn.RemoteAddr().String())
 					if err != nil {
 						continue
@@ -252,30 +317,34 @@ func (field *Field) listenTCP() {
 }
 
 func (field *Field) listenUDP() {
-	udpAddr, err := net.ResolveUDPAddr("udp", "10.0.100.5:1160")
+	udpAddr, err := net.ResolveUDPAddr("udp4", ":1160")
 	if err != nil {
-		log.Panicln("Bad Address for UDP: " + err.Error())
+		log.Println("Bad Address for UDP: " + err.Error())
+		return
 	}
 
 	listener, err := net.ListenUDP("udp4", udpAddr)
 	if err != nil {
-		log.Panicln("Couldn't start FMS UDP Server: " + err.Error())
+		log.Println("Couldn't start FMS UDP Server: " + err.Error())
+		return
 	}
+
+	log.Println("The FMS started a UDP Server on 10.0.100.5:1160!")
 
 	field.UDPSocket = listener
 
 	defer listener.Close()
 
+	var bytes [50]byte
 	for {
-		var bytes []byte
-		listener.Read(bytes)
-		eStopped := (bytes[3] >> 7 & 0x01) == 1
-		comms := (bytes[3] >> 5 & 0x01) == 1
-		radioPing := (bytes[3] >> 4 & 0x01) == 1
-		rioPing := (bytes[3] >> 3 & 0x01) == 1
-		enabled := (bytes[3] >> 2 & 0x01) == 1
-		mode := Mode(bytes[3] & 0x03)
-		teamNum := int((bytes[4] << 8) + bytes[5])
+		listener.Read(bytes[:])
+		eStopped := (int(bytes[3]) >> 7 & 0x01) == 1
+		comms := (int(bytes[3]) >> 5 & 0x01) == 1
+		radioPing := (int(bytes[3]) >> 4 & 0x01) == 1
+		rioPing := (int(bytes[3]) >> 3 & 0x01) == 1
+		enabled := (int(bytes[3]) >> 2 & 0x01) == 1
+		mode := Mode(int(bytes[3]) & 0x03)
+		teamNum := (int(bytes[4]) << 8) + int(bytes[5])
 		batteryVoltage := float64(bytes[6]) + float64(bytes[7])/256
 
 		if driverStation := field.GetDriverStationByTeamNum(teamNum); driverStation != nil {

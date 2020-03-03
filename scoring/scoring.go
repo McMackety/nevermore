@@ -1,6 +1,7 @@
 package scoring
 
 import (
+	"github.com/McMackety/nevermore/web"
 	"github.com/fatih/structs"
 	"github.com/mitchellh/mapstructure"
 )
@@ -61,10 +62,12 @@ type InfiniteRechargeScoring struct {
 
 func (scoring *InfiniteRechargeScoring) UpdateRedScoringData(data map[string]interface{}) {
 	mapstructure.Decode(data, &scoring.RedData)
+	web.WebEventsServer.EmitJSONAll("redScoreData", scoring.RedData)
 }
 
 func (scoring *InfiniteRechargeScoring) UpdateBlueScoringData(data map[string]interface{}) {
 	mapstructure.Decode(data, &scoring.BlueData)
+	web.WebEventsServer.EmitJSONAll("blueScoreData", scoring.BlueData)
 }
 
 func (scoring *InfiniteRechargeScoring) GetScoringDataRed() map[string]interface{} {
