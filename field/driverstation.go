@@ -1,7 +1,6 @@
 package field
 
 import (
-	"fmt"
 	"github.com/McMackety/nevermore/web"
 	"net"
 	"time"
@@ -27,7 +26,7 @@ type DriverStation struct {
 	UDPConn net.Conn `json:"-"`
 }
 
-func (driverStation *DriverStation) sendEventName() {
+func (driverStation *DriverStation) SendEventName() {
 	data := []byte{
 		0x14,
 		byte(len(driverStation.CurrentField.EventName)),
@@ -37,7 +36,7 @@ func (driverStation *DriverStation) sendEventName() {
 	driverStation.TCPSocket.Write(prefixWithSize(data))
 }
 
-func (driverStation *DriverStation) sendStationInfo() {
+func (driverStation *DriverStation) SendStationInfo() {
 	data := []byte{
 		0x19,
 		byte(driverStation.Station),
@@ -50,7 +49,7 @@ func (driverStation *DriverStation) sendStationInfo() {
 
 
 func (driverStation *DriverStation) tick() {
-	if time.Since(driverStation.LastUDPMessage).Seconds() > 2 {
+	if time.Since(driverStation.LastUDPMessage).Seconds() > 10 {
 		driverStation.Kick()
 	} else {
 		// Update all Web Clients for updates every tick.
@@ -109,16 +108,14 @@ func (driverStation *DriverStation) tick() {
 }
 
 func (driverStation *DriverStation) Kick() {
-	println("Kicked")
+	delete(driverStation.CurrentField.TeamNumberToDriverStation, driverStation.TeamNumber)
 	web.WebEventsServer.EmitJSONAll("driverStationKicked", driverStation.TeamNumber)
 	driverStation.TCPSocket.Close()
 	driverStation.UDPConn.Close()
 }
 
 func (driverStation *DriverStation) receiveUDP(eStop bool, comms bool, radioPing bool, rioPing bool, enabled bool, mode Mode, batteryVoltage float64) {
-	println("received")
 	driverStation.LastUDPMessage = time.Now()
-	fmt.Println(driverStation.LastUDPMessage)
 	driverStation.EmergencyStopped = eStop
 	driverStation.Comms = comms
 	driverStation.RadioPing = radioPing

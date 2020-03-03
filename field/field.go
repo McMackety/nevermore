@@ -14,7 +14,7 @@ var correctNetwork bool = false
 var CurrentField Field
 
 type Field struct {
-	TeamNumberToDriverStation map[int]DriverStation `json:"teamNumberToDriverStation"`
+	TeamNumberToDriverStation map[int]*DriverStation `json:"teamNumberToDriverStation"`
 	AllianceStationToTeam map[AllianceStation]int `json:"allianceStationToTeam"`
 	MatchPaused bool `json:"matchPaused"`
 	MatchStarted bool `json:"matchStarted"`
@@ -46,7 +46,7 @@ func InitField() {
 	}
 
 	CurrentField = Field{
-		TeamNumberToDriverStation: make(map[int]DriverStation),
+		TeamNumberToDriverStation: make(map[int]*DriverStation),
 		AllianceStationToTeam: make(map[AllianceStation]int),
 		MatchPaused: false,
 		MatchStarted: false,
@@ -66,7 +66,7 @@ func InitField() {
 
 func (field *Field) GetDriverStationByTeamNum(teamNum int) *DriverStation {
 	if val, ok := field.TeamNumberToDriverStation[teamNum]; ok {
-		return &val
+		return val
 	}
 	return nil
 }
@@ -75,7 +75,7 @@ func (field *Field) GetDriverStationByTeamNum(teamNum int) *DriverStation {
 func (field *Field) GetDriverStationByIP(ip net.Addr) *DriverStation {
 	for _, driverStation := range field.TeamNumberToDriverStation {
 		if driverStation.TCPSocket.RemoteAddr() == ip {
-			return &driverStation
+			return driverStation
 		}
 	}
 	return nil
@@ -238,7 +238,7 @@ func (field *Field) tick() {
 }
 
 func (field *Field) createDriverStation(teamNum int, socket net.Conn, udpSocket net.Conn) {
-	driverStation := DriverStation{
+	driverStation := &DriverStation{
 		TCPSocket:        socket,
 		CurrentField:     field,
 		TeamNumber:       teamNum,
@@ -257,10 +257,6 @@ func (field *Field) createDriverStation(teamNum int, socket net.Conn, udpSocket 
 		UDPConn: 		  udpSocket,
 	}
 
-	if newStation, ok := field.TeamNumberToDriverStation[teamNum]; ok {
-		driverStation = newStation
-		return
-	}
 	field.TeamNumberToDriverStation[teamNum] = driverStation
 
 	if !field.IsTeamInMatch(teamNum) {
@@ -269,8 +265,8 @@ func (field *Field) createDriverStation(teamNum int, socket net.Conn, udpSocket 
 		driverStation.Status = GOODSTATUS
 	}
 
-	driverStation.sendStationInfo()
-	driverStation.sendEventName()
+	driverStation.SendStationInfo()
+	driverStation.SendEventName()
 }
 
 func (field *Field) listenTCP() {
