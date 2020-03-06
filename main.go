@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/McMackety/nevermore/config"
+	"github.com/McMackety/nevermore/database"
 	"github.com/McMackety/nevermore/field"
 	"github.com/McMackety/nevermore/web"
 	"log"
@@ -36,12 +37,18 @@ func main() {
 			if out, err := strconv.Atoi(parts[1]); err == nil {
 				if driverStation, ok := field.CurrentField.TeamNumberToDriverStation[out]; ok {
 					if enabled, err := strconv.ParseBool(parts[2]); err == nil {
-						driverStation.Enabled= enabled
+						driverStation.Enabled = enabled
 						continue
 					}
 				}
 			}
 			println("Improper usage of enable: Usage: enable <teamNum> <true|false>")
+			continue
+		case "startMatch":
+			err := field.CurrentField.StartField()
+			if err != nil {
+				log.Println(err.Error())
+			}
 			continue
 		case "addTeam":
 			if station, err := strconv.Atoi(parts[1]); err == nil {
@@ -52,6 +59,17 @@ func main() {
 			}
 			println("Improper usage of enable: Usage: addTeam <station> <teamNum>")
 			continue
+		case "removeTeamByStation":
+			if station, err := strconv.Atoi(parts[1]); err == nil {
+				if teamNum, ok := field.CurrentField.AllianceStationToTeam[field.AllianceStation(station)]; ok {
+					if driverStation := field.CurrentField.GetDriverStationByTeamNum(teamNum); driverStation != nil {
+						delete(field.CurrentField.AllianceStationToTeam, field.AllianceStation(station))
+						driverStation.Kick()
+					}
+				}
+			}
+			println("Improper usage of enable: Usage: removeTeamByStation <station>")
+			continue
 		case "station":
 			if out, err := strconv.Atoi(parts[1]); err == nil {
 				if driverStation, ok := field.CurrentField.TeamNumberToDriverStation[out]; ok {
@@ -59,6 +77,13 @@ func main() {
 						driverStation.Station = field.AllianceStation(station)
 					}
 				}
+			}
+			continue
+		case "createUser":
+			if userType, err := strconv.Atoi(parts[2]); err == nil {
+				username := parts[1]
+				pin := parts[3]
+				database.Create(username, database.UserType(userType), pin)
 			}
 			continue
 		}

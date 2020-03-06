@@ -9,12 +9,10 @@ var TeleopLength = 105
 var EndgameLength = 30
 
 func GetFormattedTime(time int) int {
-	if time > TransitionLength + TeleopLength + EndgameLength {
-		return time - TransitionLength + TeleopLength + EndgameLength
-	} else if time > TeleopLength + EndgameLength {
-		return time
-	} else if time > EndgameLength {
-		return time
+	if time > TransitionLength+TeleopLength+EndgameLength {
+		return time - (TransitionLength + TeleopLength + EndgameLength)
+	} else if time > TeleopLength+EndgameLength {
+		return 0
 	} else if time > 0 {
 		return time
 	} else {

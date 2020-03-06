@@ -1,29 +1,28 @@
 package field
 
 import (
-	"github.com/McMackety/nevermore/web"
+	"github.com/McMackety/nevermore/webevents"
 	"net"
 	"time"
 )
 
 type DriverStation struct {
-	TCPSocket net.Conn `json:"-"`
-	CurrentField *Field `json:"-"`
-	TeamNumber int `json:"teamNum"`
-	EmergencyStopped bool `json:"eStop"`
-	Comms bool `json:"comms"`
-	RadioPing bool `json:"radioPing"`
-	RioPing bool `json:"rioPing"`
-	Enabled bool `json:"enabled"`
-	Mode Mode `json:"mode"`
-	BatteryVoltage float64 `json:"batteryVoltage"`
-	UDPSequenceNum int `json:"-"`
-	LostPacketsNum int `json:"-"`
-	AverageTripTime int `json:"-"`
-	Station AllianceStation `json:"allianceStation"`
-	Status Status `json:"status"`
-	LastUDPMessage time.Time `json:"-"`
-	UDPConn net.Conn `json:"-"`
+	TCPSocket        net.Conn        `json:"-"`
+	CurrentField     *Field          `json:"-"`
+	TeamNumber       int             `json:"teamNum"`
+	EmergencyStopped bool            `json:"eStop"`
+	Comms            bool            `json:"comms"`
+	RadioPing        bool            `json:"radioPing"`
+	RioPing          bool            `json:"rioPing"`
+	Enabled          bool            `json:"enabled"`
+	BatteryVoltage   float64         `json:"batteryVoltage"`
+	UDPSequenceNum   int             `json:"-"`
+	LostPacketsNum   int             `json:"-"`
+	AverageTripTime  int             `json:"-"`
+	Station          AllianceStation `json:"allianceStation"`
+	Status           Status          `json:"status"`
+	LastUDPMessage   time.Time       `json:"-"`
+	UDPConn          net.Conn        `json:"-"`
 }
 
 func (driverStation *DriverStation) SendEventName() {
@@ -46,7 +45,26 @@ func (driverStation *DriverStation) SendStationInfo() {
 	driverStation.TCPSocket.Write(prefixWithSize(data))
 }
 
+func (driverStation *DriverStation) IsInAutonomous() bool {
+	if driverStation.CurrentField.TimeLeft > TransitionLength+TeleopLength+EndgameLength {
+		return true
+	}
+	return false
+}
 
+func (driverStation *DriverStation) ShouldBeEnabled() bool {
+	if driverStation.CurrentField.MatchDone || !driverStation.CurrentField.MatchStarted || driverStation.CurrentField.MatchPaused {
+		return false
+	}
+	if driverStation.CurrentField.TimeLeft > TransitionLength+TeleopLength+EndgameLength {
+		return true
+	} else if driverStation.CurrentField.TimeLeft > TeleopLength+EndgameLength {
+		return false
+	} else if driverStation.CurrentField.TimeLeft > 0 {
+		return true
+	}
+	return false
+}
 
 func (driverStation *DriverStation) tick() {
 	if time.Since(driverStation.LastUDPMessage).Seconds() > 10 {
@@ -54,7 +72,12 @@ func (driverStation *DriverStation) tick() {
 	} else {
 		// Update all Web Clients for updates every tick.
 		// Uses "driverStationTick_{teamNum} as Event Name
-		web.WebEventsServer.EmitJSONAll("driverStationTick_" + string(driverStation.TeamNumber), driverStation)
+		enabled := driverStation.Enabled
+		if !driverStation.ShouldBeEnabled() {
+			enabled = false
+		}
+
+		autonomous := driverStation.IsInAutonomous()
 
 		var packet [22]byte
 		packet[0] = byte(driverStation.UDPSequenceNum >> 8 & 0xff)
@@ -63,10 +86,10 @@ func (driverStation *DriverStation) tick() {
 		packet[2] = 0
 
 		packet[3] = 0
-		if driverStation.Mode == AUTONOMOUSMODE {
+		if autonomous {
 			packet[3] |= 0x02
 		}
-		if driverStation.Enabled {
+		if enabled {
 			packet[3] |= 0x04
 		}
 		if driverStation.EmergencyStopped {
@@ -109,19 +132,16 @@ func (driverStation *DriverStation) tick() {
 
 func (driverStation *DriverStation) Kick() {
 	delete(driverStation.CurrentField.TeamNumberToDriverStation, driverStation.TeamNumber)
-	web.WebEventsServer.EmitJSONAll("driverStationKicked", driverStation.TeamNumber)
+	webevents.WebEventsServer.EmitJSONAll("driverStationKicked", driverStation.TeamNumber)
 	driverStation.TCPSocket.Close()
 	driverStation.UDPConn.Close()
 }
 
 func (driverStation *DriverStation) receiveUDP(eStop bool, comms bool, radioPing bool, rioPing bool, enabled bool, mode Mode, batteryVoltage float64) {
 	driverStation.LastUDPMessage = time.Now()
-	driverStation.EmergencyStopped = eStop
 	driverStation.Comms = comms
 	driverStation.RadioPing = radioPing
 	driverStation.RioPing = rioPing
-	driverStation.Enabled = enabled
-	driverStation.Mode = mode
 	driverStation.BatteryVoltage = batteryVoltage
 }
 

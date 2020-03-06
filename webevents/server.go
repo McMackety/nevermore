@@ -7,30 +7,32 @@ import (
 	"net/http"
 )
 
+var WebEventsServer *Server
+
 var invalidMessage = MessageWrapper{"error", Error{"invalidMessage", "That message as invalid!"}}
 
 var unknownEvent = MessageWrapper{"error", Error{"unknownEvent", "That event doesn't exist!"}}
 
 type Server struct {
-	joinHandlers []func(client *Client)
+	joinHandlers  []func(client *Client)
 	closeHandlers []func(client *Client)
-	Clients map[*websocket.Conn]Client
-	upgrader websocket.Upgrader
+	Clients       map[*websocket.Conn]Client
+	upgrader      websocket.Upgrader
 }
 
 type Error struct {
-	Name string `json:"name"`
+	Name    string `json:"name"`
 	Message string `json:"message"`
 }
 
 type MessageWrapper struct {
-	EventName string `json:"eN"`
-	Message interface{} `json:"m"`
+	EventName string      `json:"eN"`
+	Message   interface{} `json:"m"`
 }
 
 type MessageDecoder struct {
-	EventName string `json:"eN"`
-	Message json.RawMessage `json:"m"`
+	EventName string          `json:"eN"`
+	Message   json.RawMessage `json:"m"`
 }
 
 type SubscriptionMessage struct {
@@ -46,6 +48,7 @@ func CreateServer() (server *Server) {
 	}
 	server = new(Server)
 	server.upgrader = upgrader
+	server.Clients = make(map[*websocket.Conn]Client)
 	http.HandleFunc("/ws", server.handleWs)
 	return server
 }
@@ -63,8 +66,8 @@ func (server *Server) handleWs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := Client{
-		Websocket: ws,
-		handlers: make(map[string]func(client *Client, json json.RawMessage)),
+		Websocket:    ws,
+		handlers:     make(map[string]func(client *Client, json json.RawMessage)),
 		StoredValues: make(map[interface{}]interface{}),
 	}
 
