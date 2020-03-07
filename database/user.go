@@ -1,6 +1,9 @@
 package database
 
-import "github.com/jinzhu/gorm"
+import (
+	"errors"
+	"github.com/jinzhu/gorm"
+)
 
 type UserType int
 
@@ -25,28 +28,34 @@ func GetAllUsers() []User {
 	return users
 }
 
-func GetByID(id uint) User {
+func GetUserByID(id uint) (user User, err error) {
 	var userFromDatabase User
-	Database.Where("id = ?", id).Select("id, createdAt, updatedAt, username, userType").First(&userFromDatabase)
-	return userFromDatabase
+	if err := Database.Where("id = ?", id).Select("id, createdAt, updatedAt, username, userType").First(&userFromDatabase).Error; err != nil {
+		return userFromDatabase, nil
+	}
+	return userFromDatabase, errors.New("couldn't find user")
 }
 
-func GetByUsername(username string) User {
+func GetUserByUsername(username string) (user User, err error) {
 	var userFromDatabase User
-	Database.Where(&User{Username: username}).Select("id, createdAt, updatedAt, username, userType").First(&userFromDatabase)
-	return userFromDatabase
+	if err := Database.First(&userFromDatabase, "username = ?", username).Select("id, createdAt, updatedAt, username, userType").Error; err != nil {
+		return userFromDatabase, nil
+	}
+	return userFromDatabase, errors.New("couldn't find user")
 }
 
-func CheckPIN(username string, pin string) bool {
+func CheckUserPIN(username string, pin string) bool {
 	var userFromDatabase User
-	Database.Where(&User{Username: username}).First(&userFromDatabase)
+	if err := Database.Where("username = ?", username).Select("id, createdAt, updatedAt, username, userType").First(&userFromDatabase).Error; err != nil {
+		return false
+	}
 	if userFromDatabase.Pin == pin {
 		return true
 	}
 	return false
 }
 
-func Create(username string, userType UserType, pin string) {
+func CreateUser(username string, userType UserType, pin string) {
 	Database.Create(&User{Username: username, UserType: userType, Pin: pin})
 }
 

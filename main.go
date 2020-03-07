@@ -6,7 +6,6 @@ import (
 	"github.com/McMackety/nevermore/config"
 	"github.com/McMackety/nevermore/database"
 	"github.com/McMackety/nevermore/field"
-	"github.com/McMackety/nevermore/web"
 	"log"
 	"os"
 	"strconv"
@@ -19,9 +18,9 @@ var GitCommit string = "dev" // This will be injected at build time, don't worry
 func main() {
 	log.Printf("Starting nevermore v%s (Commit %s)", Version, GitCommit)
 	config.LoadConfig()
-	web.StartWebServer()
-	field.InitField()
-	log.Printf("Nevermore v%s has started.", Version)
+	field.CreateField()
+	field.CurrentField.Run()
+	database.InitDatabase()
 
 	// CLI app down here, mostly used for pre-gui debugging
 
@@ -33,19 +32,20 @@ func main() {
 		text = strings.Replace(text, "\n", "", -1)
 		parts := strings.Split(text, " ")
 		switch parts[0] {
-		case "enable":
-			if out, err := strconv.Atoi(parts[1]); err == nil {
-				if driverStation, ok := field.CurrentField.TeamNumberToDriverStation[out]; ok {
-					if enabled, err := strconv.ParseBool(parts[2]); err == nil {
-						driverStation.Enabled = enabled
-						continue
-					}
-				}
-			}
-			println("Improper usage of enable: Usage: enable <teamNum> <true|false>")
+		case "enableAll":
+			field.CurrentField.EnableAllRobots()
+			continue
+		case "disableAll":
+			field.CurrentField.DisableAllRobots()
 			continue
 		case "startMatch":
 			err := field.CurrentField.StartField()
+			if err != nil {
+				log.Println(err.Error())
+			}
+			continue
+		case "stopMatch":
+			err := field.CurrentField.StopField(true)
 			if err != nil {
 				log.Println(err.Error())
 			}
@@ -77,13 +77,6 @@ func main() {
 						driverStation.Station = field.AllianceStation(station)
 					}
 				}
-			}
-			continue
-		case "createUser":
-			if userType, err := strconv.Atoi(parts[2]); err == nil {
-				username := parts[1]
-				pin := parts[3]
-				database.Create(username, database.UserType(userType), pin)
 			}
 			continue
 		}

@@ -1,7 +1,7 @@
 {
-  "websocketListenAddress": "0.0.0.0:8080",
+  "websocketListenAddress": "0.0.0.0:8081",
   "database": {
-    "type": "sqlite",
-    "address": "database.sql"
+    "type": "sqlite3",
+    "address": "database.db"
   }
 }

@@ -1,7 +1,6 @@
 package field
 
 import (
-	"github.com/McMackety/nevermore/webevents"
 	"net"
 	"time"
 )
@@ -11,40 +10,53 @@ type DriverStation struct {
 	CurrentField     *Field          `json:"-"`
 	TeamNumber       int             `json:"teamNum"`
 	EmergencyStopped bool            `json:"eStop"`
+	RequestEmergencyStop bool        `json:"requestEStop"`
 	Comms            bool            `json:"comms"`
 	RadioPing        bool            `json:"radioPing"`
 	RioPing          bool            `json:"rioPing"`
+	RequestEnabled   bool            `json:"requestEnabled"`
 	Enabled          bool            `json:"enabled"`
 	BatteryVoltage   float64         `json:"batteryVoltage"`
 	UDPSequenceNum   int             `json:"-"`
-	LostPacketsNum   int             `json:"-"`
-	AverageTripTime  int             `json:"-"`
 	Station          AllianceStation `json:"allianceStation"`
 	Status           Status          `json:"status"`
 	LastUDPMessage   time.Time       `json:"-"`
 	UDPConn          net.Conn        `json:"-"`
 }
 
-func (driverStation *DriverStation) SendEventName() {
-	data := []byte{
-		0x14,
-		byte(len(driverStation.CurrentField.EventName)),
+// Creates a new driver station connection.
+func (field *Field) createDriverStation(teamNum int, socket net.Conn, udpSocket net.Conn) {
+	driverStation := &DriverStation{
+		TCPSocket:        socket,
+		CurrentField:     field,
+		TeamNumber:       teamNum,
+		EmergencyStopped: false,
+		RequestEmergencyStop: false,
+		Comms:            false,
+		RadioPing:        false,
+		RioPing:          false,
+		Enabled:          true,
+		BatteryVoltage:   0.0,
+		UDPSequenceNum:   0,
+		LastUDPMessage:   time.Now(),
+		UDPConn:          udpSocket,
 	}
 
-	data = append(data, []byte(driverStation.CurrentField.EventName)...)
-	driverStation.TCPSocket.Write(prefixWithSize(data))
-}
+	field.TeamNumberToDriverStation[teamNum] = driverStation
 
-func (driverStation *DriverStation) SendStationInfo() {
-	data := []byte{
-		0x19,
-		byte(driverStation.Station),
-		byte(driverStation.Status),
+	if !field.IsTeamInMatch(teamNum) {
+		driverStation.Status = WAITING
+	} else {
+		driverStation.Status = GOOD
+		driverStation.Station = field.GetAllianceStationFromTeamNum(teamNum)
 	}
 
-	driverStation.TCPSocket.Write(prefixWithSize(data))
+	// Send Event and Station Info
+	driverStation.SendStationInfo()
+	driverStation.SendEventName()
 }
 
+// Returns true if in autonomous period, false if not.
 func (driverStation *DriverStation) IsInAutonomous() bool {
 	if driverStation.CurrentField.TimeLeft > TransitionLength+TeleopLength+EndgameLength {
 		return true
@@ -52,8 +64,9 @@ func (driverStation *DriverStation) IsInAutonomous() bool {
 	return false
 }
 
+// Returns true if in autonomous period, false if not.
 func (driverStation *DriverStation) ShouldBeEnabled() bool {
-	if driverStation.CurrentField.MatchDone || !driverStation.CurrentField.MatchStarted || driverStation.CurrentField.MatchPaused {
+	if driverStation.CurrentField.MatchState != STARTED {
 		return false
 	}
 	if driverStation.CurrentField.TimeLeft > TransitionLength+TeleopLength+EndgameLength {
@@ -66,8 +79,38 @@ func (driverStation *DriverStation) ShouldBeEnabled() bool {
 	return false
 }
 
+// Sends the name of the event
+func (driverStation *DriverStation) SendEventName() {
+	data := []byte{
+		0x14,
+		byte(len(driverStation.CurrentField.EventName)),
+	}
+
+	data = append(data, []byte(driverStation.CurrentField.EventName)...)
+	driverStation.TCPSocket.Write(prefixWithSize(data))
+}
+
+// Sends the station's info
+func (driverStation *DriverStation) SendStationInfo() {
+	data := []byte{
+		0x19,
+		byte(driverStation.Station),
+		byte(driverStation.Status),
+	}
+
+	driverStation.TCPSocket.Write(prefixWithSize(data))
+}
+
+// Kicks the driverstation
+func (driverStation *DriverStation) Kick() {
+	delete(driverStation.CurrentField.TeamNumberToDriverStation, driverStation.TeamNumber)
+	driverStation.TCPSocket.Close()
+	driverStation.UDPConn.Close()
+}
+
+// Ticks the driverstation, ran every 500 ms
 func (driverStation *DriverStation) tick() {
-	if time.Since(driverStation.LastUDPMessage).Seconds() > 10 {
+	if time.Since(driverStation.LastUDPMessage).Seconds() > 2 {
 		driverStation.Kick()
 	} else {
 		// Update all Web Clients for updates every tick.
@@ -100,11 +143,11 @@ func (driverStation *DriverStation) tick() {
 
 		packet[5] = byte(driverStation.Station)
 
-		packet[6] = byte(CurrentField.MatchLevel)
+		packet[6] = byte(driverStation.CurrentField.MatchLevel)
 
-		packet[7] = byte(CurrentField.MatchNumber >> 8 & 0xff)
+		packet[7] = byte(driverStation.CurrentField.MatchNumber >> 8 & 0xff)
 
-		packet[8] = byte(CurrentField.MatchNumber & 0xff)
+		packet[8] = byte(driverStation.CurrentField.MatchNumber & 0xff)
 
 		packet[9] = 1 // Useless Replay Number (To Us)
 
@@ -130,19 +173,15 @@ func (driverStation *DriverStation) tick() {
 	}
 }
 
-func (driverStation *DriverStation) Kick() {
-	delete(driverStation.CurrentField.TeamNumberToDriverStation, driverStation.TeamNumber)
-	webevents.WebEventsServer.EmitJSONAll("driverStationKicked", driverStation.TeamNumber)
-	driverStation.TCPSocket.Close()
-	driverStation.UDPConn.Close()
-}
-
+// Called whenever a UDP message was received
 func (driverStation *DriverStation) receiveUDP(eStop bool, comms bool, radioPing bool, rioPing bool, enabled bool, mode Mode, batteryVoltage float64) {
 	driverStation.LastUDPMessage = time.Now()
 	driverStation.Comms = comms
 	driverStation.RadioPing = radioPing
 	driverStation.RioPing = rioPing
 	driverStation.BatteryVoltage = batteryVoltage
+	driverStation.RequestEnabled = enabled
+	driverStation.RequestEmergencyStop = eStop
 }
 
 func prefixWithSize(bytes []byte) []byte {

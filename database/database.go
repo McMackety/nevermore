@@ -11,9 +11,9 @@ import (
 var Database gorm.DB
 
 func InitDatabase() {
-	Database, err := gorm.Open(config.DefaultConfig.Database.Type, config.DefaultConfig.Database.Type)
+	Database, err := gorm.Open(config.DefaultConfig.Database.Type, config.DefaultConfig.Database.Address)
 	if err != nil {
-		panic("failed to connect database")
+		panic("failed to connect database: " + err.Error())
 	}
 
 	Database.AutoMigrate(&User{})

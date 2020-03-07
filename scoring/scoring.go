@@ -1,9 +1,9 @@
 package scoring
 
 import (
-	"github.com/McMackety/nevermore/web"
 	"github.com/fatih/structs"
 	"github.com/mitchellh/mapstructure"
+	"math/rand"
 )
 
 type ScoringInterface interface {
@@ -12,6 +12,8 @@ type ScoringInterface interface {
 	GetScoringDataRed() map[string]interface{}
 	GetScoringDataBlue() map[string]interface{}
 	GetFinalScore() (redScore int, blueScore int)
+	ShouldSendColorRed(currentColor string) bool
+	ShouldSendColorBlue(currentColor string) bool
 }
 
 func CreateScoringInterface() ScoringInterface {
@@ -52,22 +54,24 @@ func CreateScoringInterface() ScoringInterface {
 			OpponentFoul:             0,
 			OpponentTechFoul:         0,
 		},
+		RedColor: "",
+		BlueColor: "",
 	}
 }
 
 type InfiniteRechargeScoring struct {
 	RedData InfiniteRechargeScoringData
 	BlueData InfiniteRechargeScoringData
+	RedColor string
+	BlueColor string
 }
 
 func (scoring *InfiniteRechargeScoring) UpdateRedScoringData(data map[string]interface{}) {
 	mapstructure.Decode(data, &scoring.RedData)
-	web.WebEventsServer.EmitJSONAll("redScoreData", scoring.RedData)
 }
 
 func (scoring *InfiniteRechargeScoring) UpdateBlueScoringData(data map[string]interface{}) {
 	mapstructure.Decode(data, &scoring.BlueData)
-	web.WebEventsServer.EmitJSONAll("blueScoreData", scoring.BlueData)
 }
 
 func (scoring *InfiniteRechargeScoring) GetScoringDataRed() map[string]interface{} {
@@ -80,6 +84,26 @@ func (scoring *InfiniteRechargeScoring) GetScoringDataBlue() map[string]interfac
 
 func (scoring *InfiniteRechargeScoring) GetFinalScore() (redScore int, blueScore int) {
 	return scoring.RedData.calcScore(), scoring.BlueData.calcScore()
+}
+
+func (scoring *InfiniteRechargeScoring) ShouldSendColorRed(currentColor string) bool {
+	if scoring.RedColor == "" {
+		if scoring.RedData.RotationControlCompleted && scoring.RedData.TotalPowerCells >= 9 + 20 {
+			scoring.RedColor = getRandomColor(currentColor)
+			return true
+		}
+	}
+	return false
+}
+
+func (scoring *InfiniteRechargeScoring) ShouldSendColorBlue(currentColor string) bool {
+	if scoring.BlueColor == "" {
+		if scoring.BlueData.RotationControlCompleted && scoring.BlueData.TotalPowerCells >= 9 + 20 {
+			scoring.BlueColor = getRandomColor(currentColor)
+			return true
+		}
+	}
+	return false
 }
 
 type InfiniteRechargeScoringData struct {
@@ -122,4 +146,31 @@ func (scoreData *InfiniteRechargeScoringData) calcScore() int {
 		score += 15
 	}
 	return score
+}
+
+func getRandomColor(otherThan string) string {
+	for {
+		switch rand.Intn(4) {
+		case 0:
+			if otherThan == "y" {
+				continue
+			}
+			return "y"
+		case 1:
+			if otherThan == "b" {
+				continue
+			}
+			return "b"
+		case 2:
+			if otherThan == "g" {
+				continue
+			}
+			return "g"
+		case 3:
+			if otherThan == "r" {
+				continue
+			}
+			return "r"
+		}
+	}
 }
