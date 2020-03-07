@@ -9,7 +9,14 @@ import (
 	"time"
 )
 
-func PlayWAV(url string, playFor time.Duration) {
+var sounds map[string]Sound = make(map[string]Sound)
+
+type Sound struct {
+	Streamer beep.StreamSeekCloser
+	Format beep.Format
+}
+
+func LoadWAVFile(url string) {
 	f, err := os.Open(url)
 	if err != nil {
 		log.Fatal(err)
@@ -19,11 +26,18 @@ func PlayWAV(url string, playFor time.Duration) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer streamer.Close()
+	sounds[url] = Sound{
+		Streamer: streamer,
+		Format: format,
+	}
+}
 
-	speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
+func PlayWAV(url string, playFor time.Duration) {
+	sound := sounds[url]
+
+	speaker.Init(sound.Format.SampleRate, sound.Format.SampleRate.N(time.Second/10))
 	done := make(chan bool)
-	speaker.Play(beep.Seq(streamer, beep.Callback(func() {
+	speaker.Play(beep.Seq(sound.Streamer, beep.Callback(func() {
 		done <- true
 	})))
 	time.Sleep(playFor)

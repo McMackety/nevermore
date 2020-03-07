@@ -50,6 +50,12 @@ func main() {
 				log.Println(err.Error())
 			}
 			continue
+		case "startTest":
+			field.CurrentField.MatchLevel = field.MATCHTEST
+			continue
+		case "stopTest":
+			field.CurrentField.MatchLevel = field.PRACTICE
+			continue
 		case "addTeam":
 			if station, err := strconv.Atoi(parts[1]); err == nil {
 				if team, err := strconv.Atoi(parts[2]); err == nil {

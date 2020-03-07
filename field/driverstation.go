@@ -117,7 +117,9 @@ func (driverStation *DriverStation) tick() {
 		// Uses "driverStationTick_{teamNum} as Event Name
 		enabled := driverStation.Enabled
 		if !driverStation.ShouldBeEnabled() {
-			enabled = false
+			if driverStation.CurrentField.MatchLevel != MATCHTEST {
+				enabled = false
+			}
 		}
 
 		autonomous := driverStation.IsInAutonomous()

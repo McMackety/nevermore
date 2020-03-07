@@ -52,7 +52,7 @@ func CreateField() {
 		MatchState:				   NOTREADY,
 		Scorer: 				   scoring.CreateScoringInterface(),
 		MatchStartedAt:            time.Now(),
-		MatchLevel:                MATCHTEST,
+		MatchLevel:                PRACTICE,
 		MatchNumber:               0,
 		EventName:                 "EAO",
 		CurrentPhase: 			   NOTHING,
@@ -62,6 +62,10 @@ func CreateField() {
 
 // Starts the FMS's networking
 func (field *Field) Run() {
+	LoadWAVFile("audio/CHARGE.wav")
+	LoadWAVFile("audio/ENDMATCH.wav")
+	LoadWAVFile("audio/three-bells.wav")
+	LoadWAVFile("audio/warning.wav")
 	go field.fieldTimer()
 	go field.tick()
 	go field.listenTCP()
@@ -177,7 +181,7 @@ func (field *Field) KickAllDriverStations() {
 
 // Checks if all teams are online
 func (field *Field) AllTeamsOnField() bool {
-	hasAllTeamsOnField := false
+	hasAllTeamsOnField := true
 	for _, teamNum := range field.AllianceStationToTeam {
 		teamIsOnField := false
 		for _, driverStation := range field.TeamNumberToDriverStation {
@@ -199,32 +203,30 @@ func (field *Field) AllTeamsOnField() bool {
 func (field *Field) fieldTimer() {
 	for {
 		if field.MatchState == STARTED {
-			if field.TimeLeft > TransitionLength + TeleopLength + EndgameLength {
+			if field.TimeLeft > TransitionLength+TeleopLength+EndgameLength + 1 {
 				if field.CurrentPhase != AUTONOMOUS {
-					go PlayWAV("audio/CHARGE.wav", time.Millisecond * 1500)
+					go PlayWAV("audio/CHARGE.wav", time.Millisecond*1500)
 				}
 				field.CurrentPhase = AUTONOMOUS
-			} else if field.TimeLeft > TeleopLength + EndgameLength {
+			} else if field.TimeLeft > TeleopLength+EndgameLength + 1 {
 				if field.CurrentPhase != TRANSITION {
-					go PlayWAV("audio/ENDMATCH.wav", time.Millisecond * 500)
+					go PlayWAV("audio/ENDMATCH.wav", time.Millisecond*500)
 				}
 				field.CurrentPhase = TRANSITION
-			} else if field.TimeLeft > EndgameLength {
+			} else if field.TimeLeft > EndgameLength + 1 {
 				if field.CurrentPhase != TELEOP {
-					go PlayWAV("audio/three-bells.wav", time.Millisecond * 1500)
+					go PlayWAV("audio/three-bells.wav", time.Millisecond*1500)
 				}
 				field.CurrentPhase = TELEOP
-			} else if field.TimeLeft > 0 {
+			} else if field.TimeLeft > 1 {
 				if field.CurrentPhase != ENDGAME {
-					go PlayWAV("audio/warning.wav", time.Millisecond * 3000)
+					go PlayWAV("audio/warning.wav", time.Millisecond*3000)
 				}
 				field.CurrentPhase = ENDGAME
 			} else {
-				go PlayWAV("audio/ENDMATCH.wav", time.Millisecond * 1000)
-				err := field.StopField(false)
-				if err != nil {
-					continue
-				}
+				field.TimeLeft--
+				go PlayWAV("audio/ENDMATCH.wav", time.Millisecond*1000)
+				field.StopField(false)
 				continue
 			}
 			field.TimeLeft--
